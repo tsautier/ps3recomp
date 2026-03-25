@@ -69,7 +69,7 @@ s32 cellSysmoduleLoadModule(u16 id)
         return CELL_SYSMODULE_ERROR_UNKNOWN;
 
     if (s_module_loaded[id])
-        return CELL_SYSMODULE_ERROR_DUPLICATED;
+        return CELL_OK;  /* Already loaded — return success (some games treat DUPLICATED as fatal) */
 
     s_module_loaded[id] = 1;
     return CELL_OK;
