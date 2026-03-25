@@ -321,6 +321,18 @@ MIT License. See [LICENSE](LICENSE) for details.
 
 ## Changelog
 
+### v0.4.3 — *"Living Code"* (March 2026)
+- **Lifter: mid-function tail-entry resolution**: When a trampoline branch targets an address inside an existing function body, the lifter now generates a real tail-entry function containing the code from that address to the function's end. Eliminated ~23K stubs in flOw (91K → 101K real functions). Iterative resolution handles chains of mid-function entries.
+- **TLS `__declspec(thread)` fix**: `g_trampoline_fn` declaration mismatch caused MSVC to compile 37K+ writes as direct stores to the read-only TLS template in `.rdata`, crashing with AV WRITE. Fixed by declaring `__declspec(thread)` consistently across all translation units.
+- **DRAIN_TRAMPOLINE after all calls**: Lifter now emits the trampoline drain macro after every `bl` (direct call) and `bctrl` (indirect call). Previously only emitted in the preamble; callers that set `g_trampoline_fn` and returned wouldn't have their chains drained.
+- **CTR decrement wrap fix**: `bdnz`/`bdz` decremented CTR as uint64, causing loops with 32-bit counts sign-extended to ~0xFFFFFFFF_8XXXXXXX to wrap past zero into 18-quintillion-iteration infinite loops. Fixed: `ctx->ctr = (uint32_t)(ctx->ctr - 1)`.
+- **MSVC compatibility in lifter output**: `__builtin_clz` replaced with `_BitScanReverse`, `__int128` multiply replaced with `_mul128`/`_umul128` intrinsics, all function/memory declarations wrapped in `extern "C"` for correct C++ linkage.
+- **ppu_context struct expanded**: Added VMX/AltiVec `ppu_vr vr[32]`, `vscr`, `fpscr`, `cia`, `reserve_addr`/`reserve_value`, `thread_id` fields. Enables full VMX vector operations, atomic reservations, and thread identification.
+- **sys_lwmutex_reset_all()**: New function to destroy all lwmutex/lwcond state for clean CRT abort redirect. Prevents deadlocks when CRT initialization is interrupted mid-mutex-lock.
+- **RLD instruction decode fix** (ppu_disasm.py): MD-form rotate instructions use 3-bit sub-opcode (bits 27-29), MDS-form uses 4-bit (bits 27-30). Was using wrong bit fields, producing incorrect `rldcl`/`rldcr` decoding.
+- **Inline VM access optimization**: Game projects can define `vm_read`/`vm_write` as inline functions in ppu_recomp.cpp preamble, bypassing function call overhead. Eliminates ~100x slowdown on byte-by-byte memory operations (critical for CRT memset of multi-GB address spaces).
+- **flOw progress**: Game now loads all modules (NP, SPURS, USBD, JPGDEC, NET), registers sysutil callbacks, enters PhyreEngine initialization. CRT abort redirect with mutex/heap reset and ELF data segment reload provides clean game-main entry. 101,885 recompiled functions (up from 68K).
+
 ### v0.4.2 — *"Main Event"* (March 2026)
 - **flOw reaches game main() initialization**: CRT startup completes, abort intercepted via longjmp redirect, game enters `func_000CB9CC` with clean stack. Loads modules (GCM_SYS, SPURS, USBD, JPGDEC, NET), registers sysutil callback. First PS3 recomp project to reach game-level code execution.
 - **Trampoline system for split-function chains**: `convert_trampolines.py` and `post_lift.py` transform fallthrough edges between split functions into explicit trampoline calls. When the lifter splits a large function at branch targets, the resulting pieces are chained via trampolines so control flow is preserved without relying on physical code adjacency.
