@@ -90,6 +90,17 @@ typedef struct CellGcmControl {
     volatile u32 ref;       /* reference value (written by RSX on completion) */
 } CellGcmControl;
 
+/* GCM context data — the game reads/writes this to submit RSX commands.
+ * On PS3, gCellGcmCurrentContext points to one of these.
+ * All pointer fields are guest addresses (u32) in the recomp.
+ * Layout verified from compiled PS3 SDK inline functions: callback is at offset 0. */
+typedef struct CellGcmContextData {
+    u32 callback;   /* overflow callback function OPD (guest addr) */
+    u32 begin;      /* start of command buffer (guest addr) */
+    u32 end;        /* end of command buffer (guest addr) */
+    u32 current;    /* current write position (guest addr) */
+} CellGcmContextData;
+
 /* Display buffer configuration */
 typedef struct CellGcmDisplayInfo {
     u32 offset;         /* offset in local memory */
@@ -381,6 +392,7 @@ void cellGcmSortRemapEaIoAddress(void);
 /* Report data with location */
 CellGcmReportData* cellGcmGetReportDataAddressLocation(u32 index, u32 location);
 u32 cellGcmGetReportDataLocation(u32 index, u32 location);
+
 
 #ifdef __cplusplus
 }
