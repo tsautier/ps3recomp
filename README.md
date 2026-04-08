@@ -321,6 +321,16 @@ MIT License. See [LICENSE](LICENSE) for details.
 
 ## Changelog
 
+### v0.5.0 — *"Pixels on Screen"* (April 2026)
+- **RSX command buffer processing wired up**: `gcm_flush_guest_cmdbuf()` now initializes RSX state via `rsx_state_init()`, passes NV40 commands to `rsx_process_command_buffer()`, and dispatches to the backend. Games can write GCM commands and see results on screen.
+- **FIFO watchdog thread**: Background thread monitors `ctrl->put` for changes, scans command buffer for SET_REFERENCE (method 0x0050) and WRITE_BACK_END_LABEL (0x1D6C), updates `ctrl->get`/`ctrl->ref` automatically. Breaks cellGcmFinish spin loops without needing HLE bridge interception.
+- **Control register endianness fix**: RSX DMA control registers (put/get/ref) are MMIO accessed via `stwbrx`/`lwbrx` in recompiled code (host-endian, no byte-swap). The HLE now reads/writes these in host-endian via direct `uint32_t*` access instead of `vm_write32` (which byte-swaps for big-endian).
+- **Command buffer IO mapping**: `cellGcmInit` now maps the command buffer region (1MB-aligned) via `cellGcmMapMainMemory` so `cellGcmAddressToOffset` succeeds for buffer addresses. Previously only the game's explicit mapping was registered.
+- **AddressToOffset fallback**: Bridge now synthesizes offsets for unmapped addresses in the heap/command buffer range (0xA00000-0x2000000), preventing failures in GCM inline code that converts arbitrary guest addresses to RSX offsets.
+- **GCM callback handler upgrade**: Buffer overflow callback now flushes pending commands via `rsx_process_command_buffer`, updates control register put/get, then resets `ctx->current`. Previously only reset current without processing.
+- **cellGcmSetFlip error logging**: Bridge logs failed flip commands with buffer ID and error code. Fixed buffer ID passing (game passes context ptr in r3 and buffer ID in r4, but bridge reads r3 as buffer ID).
+- **flOw progress**: **Window visible with animated clear color!** Full GCM rendering pipeline working: NV40 clear commands → RSX processor → null backend → Win32 window repaint. 12 subsystems ticking with inline switch case implementation. 1200+ frames, buffer flips alternating 0/1. **Next blocker**: PhyreEngine FIFO sync protocol blocks render context creation — not cellGcmFinish, needs custom sync protocol investigation.
+
 ### v0.4.3 — *"Living Code"* (March 2026)
 - **Lifter: mid-function tail-entry resolution**: When a trampoline branch targets an address inside an existing function body, the lifter now generates a real tail-entry function containing the code from that address to the function's end. Eliminated ~23K stubs in flOw (91K → 101K real functions). Iterative resolution handles chains of mid-function entries.
 - **TLS `__declspec(thread)` fix**: `g_trampoline_fn` declaration mismatch caused MSVC to compile 37K+ writes as direct stores to the read-only TLS template in `.rdata`, crashing with AV WRITE. Fixed by declaring `__declspec(thread)` consistently across all translation units.
