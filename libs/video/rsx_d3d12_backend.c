@@ -84,7 +84,9 @@ typedef struct {
 
     /* Pipeline */
     ID3D12RootSignature*  root_signature;
-    ID3D12PipelineState*  pipeline_state;  /* basic vertex-colored */
+    ID3D12PipelineState*  pipeline_state;         /* triangle class — default */
+    ID3D12PipelineState*  pipeline_state_lines;   /* line class */
+    ID3D12PipelineState*  pipeline_state_points;  /* point class */
 
     /* Dynamic vertex buffer (upload heap) */
     ID3D12Resource*       vertex_buffer;
@@ -421,10 +423,26 @@ static int init_d3d12(u32 width, u32 height)
                 &IID_ID3D12PipelineState, (void**)&s_d3d.pipeline_state);
             if (SUCCEEDED(hr)) {
                 s_d3d.pipeline_ready = 1;
-                printf("[D3D12] Pipeline state created (vertex-colored)\n");
+                printf("[D3D12] Pipeline state created (triangle class)\n");
             } else {
-                printf("[D3D12] PSO creation failed (0x%08lX)\n", hr);
+                printf("[D3D12] PSO TRIANGLE creation failed (0x%08lX)\n", hr);
             }
+
+            /* Line-class PSO — same shader, LINE topology type. */
+            pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
+            hr = s_d3d.device->lpVtbl->CreateGraphicsPipelineState(
+                s_d3d.device, &pso_desc,
+                &IID_ID3D12PipelineState, (void**)&s_d3d.pipeline_state_lines);
+            if (SUCCEEDED(hr)) printf("[D3D12] Pipeline state created (line class)\n");
+            else printf("[D3D12] PSO LINE creation failed (0x%08lX)\n", hr);
+
+            /* Point-class PSO. */
+            pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
+            hr = s_d3d.device->lpVtbl->CreateGraphicsPipelineState(
+                s_d3d.device, &pso_desc,
+                &IID_ID3D12PipelineState, (void**)&s_d3d.pipeline_state_points);
+            if (SUCCEEDED(hr)) printf("[D3D12] Pipeline state created (point class)\n");
+            else printf("[D3D12] PSO POINT creation failed (0x%08lX)\n", hr);
 
             vs_blob->lpVtbl->Release(vs_blob);
             ps_blob->lpVtbl->Release(ps_blob);
@@ -545,7 +563,6 @@ static void render_frame(void)
     /* Bind pipeline state and push MVP if anything to draw */
     if (s_d3d.pipeline_ready && s_d3d.draw_count > 0) {
         s_d3d.cmd_list->lpVtbl->SetGraphicsRootSignature(s_d3d.cmd_list, s_d3d.root_signature);
-        s_d3d.cmd_list->lpVtbl->SetPipelineState(s_d3d.cmd_list, s_d3d.pipeline_state);
         s_d3d.cmd_list->lpVtbl->IASetVertexBuffers(s_d3d.cmd_list, 0, 1, &s_d3d.vb_view);
 
         /* Push the MVP matrix from RSX vertex constants slots 0..3.
@@ -570,13 +587,30 @@ static void render_frame(void)
         s_d3d.cmd_list->lpVtbl->SetGraphicsRoot32BitConstants(
             s_d3d.cmd_list, 0 /*root param 0*/, 16, mvp, 0);
 
-        /* Replay each recorded draw with its own primitive topology.
-         * vb_byte_offset / sizeof(BasicVertex) gives the start vertex index. */
+        /* Replay each recorded draw with its own primitive topology and
+         * the matching PSO class (triangle / line / point). The PSO class
+         * must match the topology or D3D12 rejects the draw. */
         u32 last_topo = 0xFFFFFFFFu;
+        ID3D12PipelineState* last_pso = NULL;
         u32 draws = s_d3d.draw_count;
         if (draws > MAX_DRAWS) draws = MAX_DRAWS;
         for (u32 d = 0; d < draws; d++) {
             const D3D12DrawRecord* dr = &s_d3d.draws[d];
+
+            /* Select PSO based on topology class: */
+            ID3D12PipelineState* target_pso = s_d3d.pipeline_state; /* default triangle */
+            if (dr->topology == D3D_TOPOLOGY_POINTLIST) {
+                target_pso = s_d3d.pipeline_state_points
+                             ? s_d3d.pipeline_state_points : s_d3d.pipeline_state;
+            } else if (dr->topology == D3D_TOPOLOGY_LINELIST ||
+                       dr->topology == D3D_TOPOLOGY_LINESTRIP) {
+                target_pso = s_d3d.pipeline_state_lines
+                             ? s_d3d.pipeline_state_lines : s_d3d.pipeline_state;
+            }
+            if (target_pso != last_pso) {
+                s_d3d.cmd_list->lpVtbl->SetPipelineState(s_d3d.cmd_list, target_pso);
+                last_pso = target_pso;
+            }
             if (dr->topology != last_topo) {
                 s_d3d.cmd_list->lpVtbl->IASetPrimitiveTopology(s_d3d.cmd_list, dr->topology);
                 last_topo = dr->topology;
@@ -836,20 +870,13 @@ static void d3d12_draw_arrays(void* ud, u32 primitive, u32 first, u32 count)
 
     u32 topo = rsx_to_d3d12_topology(primitive);
     if (topo == D3D_TOPOLOGY_UNDEFINED) {
-        /* Skip primitives we can't handle yet (quads etc.) rather than
-         * silently rendering them as the wrong shape. */
-        return;
-    }
-    /* The current PSO is TRIANGLE-type — IASetPrimitiveTopology must
-     * match. Point/line PSOs aren't implemented yet; skip such draws
-     * with a one-time warning so we don't hit a D3D12 topology/PSO
-     * mismatch. */
-    if (topo != D3D_TOPOLOGY_TRIANGLELIST && topo != D3D_TOPOLOGY_TRIANGLESTRIP) {
+        /* Skip primitives that still need index-buffer conversion
+         * (quads, line loops, triangle fans) rather than silently
+         * rendering them as the wrong shape. */
         static int s_skipped_nontri = 0;
         if (s_skipped_nontri < 3) {
-            printf("[D3D12] draw_arrays: skipping prim=%u topo=%u "
-                   "(non-triangle PSO not implemented yet)\n",
-                   primitive, topo);
+            printf("[D3D12] draw_arrays: skipping prim=%u (needs index conversion)\n",
+                   primitive);
             s_skipped_nontri++;
         }
         return;
@@ -1082,7 +1109,9 @@ void rsx_d3d12_backend_shutdown(void)
         s_d3d.vertex_buffer->lpVtbl->Unmap(s_d3d.vertex_buffer, 0, NULL);
         s_d3d.vertex_buffer->lpVtbl->Release(s_d3d.vertex_buffer);
     }
-    if (s_d3d.pipeline_state) s_d3d.pipeline_state->lpVtbl->Release(s_d3d.pipeline_state);
+    if (s_d3d.pipeline_state)        s_d3d.pipeline_state->lpVtbl->Release(s_d3d.pipeline_state);
+    if (s_d3d.pipeline_state_lines)  s_d3d.pipeline_state_lines->lpVtbl->Release(s_d3d.pipeline_state_lines);
+    if (s_d3d.pipeline_state_points) s_d3d.pipeline_state_points->lpVtbl->Release(s_d3d.pipeline_state_points);
     if (s_d3d.root_signature) s_d3d.root_signature->lpVtbl->Release(s_d3d.root_signature);
     if (s_d3d.fence) s_d3d.fence->lpVtbl->Release(s_d3d.fence);
     if (s_d3d.fence_event) CloseHandle(s_d3d.fence_event);
