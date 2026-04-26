@@ -296,6 +296,21 @@ s32 cellSaveDataAutoLoad2(u32 version, const char* dirName,
 
 s32 cellSaveDataDelete2(u32 container);
 
+/* Old / non-_2 variants from earlier SDK builds — same semantics. */
+s32 cellSaveDataAutoSave(u32 version, const char* dirName,
+                          u32 errDialog,
+                          CellSaveDataSetBuf* setBuf,
+                          CellSaveDataStatCallback funcStat,
+                          CellSaveDataFileCallback funcFile,
+                          u32 container, void* userdata);
+s32 cellSaveDataAutoLoad(u32 version, const char* dirName,
+                          u32 errDialog,
+                          CellSaveDataSetBuf* setBuf,
+                          CellSaveDataStatCallback funcStat,
+                          CellSaveDataFileCallback funcFile,
+                          u32 container, void* userdata);
+s32 cellSaveDataDelete(u32 version, const char* dirName, u32 container);
+
 #ifdef __cplusplus
 }
 #endif

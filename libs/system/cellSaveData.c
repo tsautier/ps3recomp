@@ -779,3 +779,55 @@ s32 cellSaveDataDelete2(u32 container)
        This variant typically shows a UI for deletion - just succeed. */
     return CELL_OK;
 }
+
+/* ---------------------------------------------------------------------------
+ * Old / non-_2 variants — same wrapper pattern as the _2 versions, with
+ * the same guest-callback caveat.
+ *
+ * Older PS3 SDK builds (e.g. our flOw NPUA80001 dump) link the original
+ * cellSaveDataAutoSave / AutoLoad / Delete instead of the _2 variants
+ * RPCS3's flOw build uses. Same semantics, different NID.
+ * -----------------------------------------------------------------------*/
+s32 cellSaveDataAutoSave(u32 version, const char* dirName,
+                          u32 errDialog,
+                          CellSaveDataSetBuf* setBuf,
+                          CellSaveDataStatCallback funcStat,
+                          CellSaveDataFileCallback funcFile,
+                          u32 container, void* userdata)
+{
+    printf("[cellSaveData] AutoSave(version=%u, dir='%s')\n",
+           version, dirName ? dirName : "<null>");
+    if (!dirName || !setBuf || !funcStat)
+        return CELL_SAVEDATA_ERROR_PARAM;
+    /* No guest-callback marshalling yet — succeed without running funcStat. */
+    return CELL_OK;
+}
+
+s32 cellSaveDataAutoLoad(u32 version, const char* dirName,
+                          u32 errDialog,
+                          CellSaveDataSetBuf* setBuf,
+                          CellSaveDataStatCallback funcStat,
+                          CellSaveDataFileCallback funcFile,
+                          u32 container, void* userdata)
+{
+    printf("[cellSaveData] AutoLoad(version=%u, dir='%s')\n",
+           version, dirName ? dirName : "<null>");
+    if (!dirName || !setBuf || !funcStat)
+        return CELL_SAVEDATA_ERROR_PARAM;
+    /* Same path as AutoLoad2: report no-data instead of host-calling
+     * the guest funcStat pointer. */
+    char save_path[1024];
+    build_save_path(save_path, sizeof(save_path), dirName);
+    if (!dir_exists(save_path))
+        return CELL_SAVEDATA_ERROR_CBRESULT;
+    return CELL_SAVEDATA_ERROR_NODATA;
+}
+
+s32 cellSaveDataDelete(u32 version, const char* dirName,
+                        u32 container)
+{
+    (void)version;
+    printf("[cellSaveData] Delete(dir='%s', container=%u)\n",
+           dirName ? dirName : "<null>", container);
+    return CELL_OK;
+}
